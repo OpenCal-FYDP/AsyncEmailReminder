@@ -68,7 +68,7 @@ func (e *Emailer) SendConfirmationEmail(owner string, attendees []string, data *
 		//ConfigurationSet = "ConfigSet"
 
 		// The subject line for the email.
-		Subject = "You have a new OpenCal Meeting"
+		Subject = "You have an OpenCal meeting soon!"
 
 		//The email body for recipients with non-HTML email clients.
 		TextBody = "Email unable to render without html support"

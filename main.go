@@ -1,82 +1,53 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
+	"github.com/OpenCal-FYDP/AsyncCalendarOptimizer/internal/emailer"
+	"github.com/OpenCal-FYDP/AsyncCalendarOptimizer/internal/storer"
 	"log"
 	"time"
-
-	apex "github.com/apex/go-apex"
-	"github.com/apex/go-apex/kinesis"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
 )
 
-const statsTableName = "test"
+//featureflag
+// set to true if we want this not in test mode
+const serveEveryone = true
 
-type payload struct {
-	Event     string `json:"event"`
-	Timestamp string `json:"timestamp"`
-}
+// contains checks if a string is present in a slice
+func contains(s []string, str string) bool {
+	for _, v := range s {
+		if v == str {
+			return true
+		}
+	}
 
-type aggregate struct {
-	Name         string
-	HourlyBucket int64
+	return false
 }
 
 // This is a really good starting place https://medium.com/@harlow/processing-kinesis-streams-w-aws-lambda-and-golang-264efc8f979a
 func main() {
-	svc := dynamodb.New(session.New())
 
-	kinesis.HandleFunc(func(event *kinesis.Event, ctx *apex.Context) error {
-		stats := map[aggregate]int{}
-
-		for _, r := range event.Records {
-			// unmarshal data
-			var p payload
-			err := json.Unmarshal(r.Kinesis.Data, &p)
-			if err != nil {
-				log.Printf("json unmarshal error: %v", err)
-				return err
-			}
-
-			// parse timestamp
-			hts, err := hourlyTS(p.Timestamp)
-			if err != nil {
-				log.Printf("timestamp conv error: %v", err)
-				return err
-			}
-
-			// increment coutner
-			stat := aggregate{Name: p.Event, HourlyBucket: hts}
-			stats[stat]++
-		}
-
-		// increment hourly ctrs in DDB
-		for stat, count := range stats {
-			err := saveStats(svc, stat, count)
-			if err != nil {
-				log.Printf("update item error: %v", err)
-				return err
-			}
-		}
-
-		return nil
-	})
-}
-
-// hourlyTS takes a string timestamp in RFC3339 format, trims it down to
-// nearest hour and returns Unix version of timestamp
-func hourlyTS(s string) (int64, error) {
-	ts, err := time.Parse(time.RFC3339, s)
+	emailr, err := emailer.New()
 	if err != nil {
-		return 0, fmt.Errorf("parse time error: %v", err)
+		log.Fatalln(err)
 	}
-	ts = time.Date(ts.Year(), ts.Month(), ts.Day(), ts.Hour(), 0, 0, 0, ts.Location())
-	return ts.Unix(), nil
-}
 
-func saveStats(svc *dynamodb.DynamoDB, stat aggregate, count int) error {
-	// removed DDB syntax for brevity
-	return nil
+	storR := storer.New()
+
+	for {
+		events, err := storR.GetEvents()
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		for _, event := range events {
+			if contains(event.Attendees, "jspsun@gmail.com") || serveEveryone {
+				err := emailr.SendConfirmationEmail("", event.Attendees, event)
+				if err != nil {
+					fmt.Println(err)
+				}
+
+			}
+		}
+		time.Sleep(time.Minute)
+	}
 }
